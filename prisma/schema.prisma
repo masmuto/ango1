@@ -1,0 +1,203 @@
+// Prisma schema for GO An Nahl — Rumah Tahfidz management system
+// learn more: https://pris.ly/d/prisma-schema
+//
+// DATABASE SUPPORT:
+//   - Local dev: SQLite (file:./db/custom.db) — set DATABASE_URL=file:...env
+//   - Vercel prod: PostgreSQL — set DATABASE_URL=postgresql://... (e.g. Neon, Supabase, Vercel Postgres)
+//
+// The provider is auto-detected from DATABASE_URL:
+//   - URL starts with "file:" → sqlite
+//   - URL starts with "postgresql://" or "postgres://" → postgresql
+// See /scripts/set-provider.js for the auto-detection logic (runs in postinstall)
+
+generator client {
+  provider        = "prisma-client-js"
+  binaryTargets   = ["native", "rhel-openssl-3.0.x"]  // rhel target for Vercel Linux
+}
+
+datasource db {
+  provider = "sqlite"  // overridden to "sqlite" by scripts/set-provider.js if DATABASE_URL starts with "file:"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id         String    @id @default(cuid())
+  username   String    @unique
+  password   String
+  name       String
+  role       String    @default("pengelola") // admin | bendahara | pengelola
+  email      String?
+  phone      String?
+  avatar     String?
+  active     Boolean   @default(true)
+  lastLogin  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+model Santri {
+  id           String   @id @default(cuid())
+  nis          String   @unique
+  nama         String
+  jenisKelamin String   @default("L") // L | P
+  tempatLahir  String?
+  tanggalLahir DateTime?
+  alamat       String?
+  namaAyah     String?
+  namaIbu      String?
+  noHpOrtu     String?
+  kelasId      String?
+  kelas        Kelas?   @relation(fields: [kelasId], references: [id], onDelete: SetNull)
+  tanggalMasuk DateTime @default(now())
+  status       String   @default("aktif") // aktif | nonaktif | lulus
+  catatan      String?
+  sppBulanan   Int      @default(150000)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  pembayaran   PembayaranSPP[]
+  anggota      AnggotaKelompok[]
+}
+
+model Ustaz {
+  id            String   @id @default(cuid())
+  nip           String?
+  nama          String
+  jenisKelamin  String   @default("L")
+  tempatLahir   String?
+  tanggalLahir  DateTime?
+  alamat        String?
+  noHp          String?
+  email         String?
+  spesialisasi  String?
+  tanggalMasuk  DateTime @default(now())
+  status        String   @default("aktif")
+  catatan       String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  kelas       Kelas[]
+  kelompok    KelompokBelajar[]
+}
+
+model Kelas {
+  id          String   @id @default(cuid())
+  nama        String   @unique
+  tingkat     String   @default("Tahsin") // Iqra | Tahsin | Tahfidz | Tadarus | Tajwid | Tafsir
+  ustazId     String?
+  ustaz       Ustaz?   @relation(fields: [ustazId], references: [id], onDelete: SetNull)
+  kapasitas   Int      @default(20)
+  keterangan  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  santri      Santri[]
+}
+
+model KelompokBelajar {
+  id             String   @id @default(cuid())
+  nama           String
+  ustazId        String?
+  ustaz          Ustaz?   @relation(fields: [ustazId], references: [id], onDelete: SetNull)
+  mataPelajaran  String   @default("Tahfidz")
+  ruangan        String?
+  kapasitas      Int      @default(10)
+  catatan        String?
+  status         String   @default("aktif")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  jadwal         JadwalKelompok[]
+  anggota        AnggotaKelompok[]
+}
+
+model JadwalKelompok {
+  id           String   @id @default(cuid())
+  kelompokId    String
+  kelompok      KelompokBelajar @relation(fields: [kelompokId], references: [id], onDelete: Cascade)
+  hari          String   // Senin..Ahad
+  jamMulai      String   // HH:mm
+  jamSelesai    String   // HH:mm
+  createdAt     DateTime @default(now())
+}
+
+model AnggotaKelompok {
+  id           String   @id @default(cuid())
+  kelompokId   String
+  kelompok      KelompokBelajar @relation(fields: [kelompokId], references: [id], onDelete: Cascade)
+  santriId      String
+  santri        Santri   @relation(fields: [santriId], references: [id], onDelete: Cascade)
+  tanggalGabung DateTime @default(now())
+  createdAt     DateTime @default(now())
+
+  @@unique([kelompokId, santriId])
+}
+
+model PembayaranSPP {
+  id               String   @id @default(cuid())
+  noPembayaran     String   @unique
+  santriId         String
+  santri           Santri   @relation(fields: [santriId], references: [id], onDelete: Cascade)
+  bulan            String   // YYYY-MM
+  jumlah           Int
+  tanggalBayar     DateTime @default(now())
+  metodePembayaran String   @default("tunai") // tunai | transfer | qris | lainnya
+  status           String   @default("lunas") // lunas | pending | gagal
+  keterangan       String?
+  diterimaOleh     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([santriId])
+  @@index([bulan])
+  @@index([tanggalBayar])
+}
+
+model Pengaturan {
+  id    String @id @default("singleton")
+  key   String @unique
+  value String
+}
+
+model PesanTemplate {
+  id        String   @id @default(cuid())
+  kode      String   @unique
+  nama      String
+  isi       String
+  kategori  String   @default("umum")
+  aktif     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PesanLog {
+  id           String   @id @default(cuid())
+  penerima     String
+  namaPenerima String?
+  pesan        String
+  kategori     String   @default("umum")
+  status       String   @default("terkirim") // terkirim | gagal | pending
+  mode         String   @default("manual") // manual | gateway
+  refId        String?
+  refType      String?
+  error        String?
+  durationMs   Int      @default(0)
+  createdAt    DateTime @default(now())
+
+  @@index([kategori])
+  @@index([createdAt])
+}
+
+model PushSubscription {
+  id            String   @id @default(cuid())
+  userId        String?  // null = anonymous subscription
+  endpoint      String   @unique
+  p256dh        String
+  auth          String
+  userAgent     String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId])
+}
